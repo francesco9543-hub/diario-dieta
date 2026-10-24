@@ -21,6 +21,9 @@ html, body { margin: 0; background: var(--sfondo); color: var(--testo);
   -webkit-text-size-adjust: 100%; }
 body { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 button, input, select, textarea { font: inherit; color: inherit; }
+/* Niente zoom con il doppio tocco; campi a 16px così Safari non ingrandisce quando li tocchi. */
+html, body, button, a, label, input, select, textarea, [data-azione] { touch-action: manipulation; }
+input, select, textarea { font-size: 16px !important; }
 #testata { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--sfondo) 88%, transparent);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   padding: calc(10px + env(safe-area-inset-top)) 16px 8px; display: flex; align-items: center; gap: 8px; }
