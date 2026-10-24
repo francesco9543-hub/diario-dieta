@@ -29,6 +29,7 @@ const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const n0 = (x) => Math.round(x || 0).toLocaleString("it-IT");
 const n1 = (x) => (Math.round((x || 0) * 10) / 10).toLocaleString("it-IT");
 const num = (v) => { const x = parseFloat(String(v).replace(",", ".")); return isNaN(x) ? null : x; };
+const quantita = (w) => (/^\d+([.,]\d+)?$/.test(w) ? num(w) : null); // "150" sì, "0%" no
 const inizioGiorno = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const giornoDopo = (d) => { const x = inizioGiorno(d); x.setDate(x.getDate() + 1); return x; };
 const aggiungiGiorni = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
@@ -130,6 +131,20 @@ function andamento() {
   return Math.abs(k) <= 0.25 ? ["var(--verde)", `Peso stabile (${r}).`] : ["var(--arancio)", `Il peso si sta spostando (${r}).`];
 }
 
+/** Fabbisogno reale: calorie medie registrate meno l'energia della variazione di peso (7700 kcal per kg). */
+function stimaFabbisogno() {
+  const da = aggiungiGiorni(inizioGiorno(new Date()), -28);
+  const giorni = [...Array(28)].map((_, i) => somma(vociDelGiorno(aggiungiGiorni(da, i)), "kcal")).filter((k) => k > 800);
+  const pes = S.pesate.filter((x) => new Date(x.data) >= da).sort((a, b) => new Date(a.data) - new Date(b.data));
+  if (giorni.length < 10) return { ok: false, motivo: `Servono almeno 10 giorni registrati completi nelle ultime 4 settimane (ora ${giorni.length}).` };
+  if (pes.length < 2 || new Date(pes.at(-1).data) - new Date(pes[0].data) < 10 * 864e5) return { ok: false, motivo: "Servono almeno due pesate a distanza di 10 giorni nelle ultime 4 settimane." };
+  const xs = pes.map((x) => (new Date(x.data) - new Date(pes[0].data)) / (7 * 864e5)), ys = pes.map((x) => x.peso);
+  const mx = xs.reduce((a, b) => a + b) / xs.length, my = ys.reduce((a, b) => a + b) / ys.length;
+  const k = xs.reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0) / xs.reduce((s, x) => s + (x - mx) ** 2, 0);
+  const media = giorni.reduce((a, b) => a + b) / giorni.length;
+  return { ok: true, giorni: giorni.length, media, kgSett: k, mantenimento: Math.round((media - (k * 7700) / 7) / 10) * 10 };
+}
+
 // ───────────── Grafici SVG ─────────────
 function grafico(punti, { linee = [], unita = "" } = {}) {
   if (punti.length === 0) return `<div class="vuoto">Nessun dato</div>`;
@@ -148,6 +163,22 @@ function grafico(punti, { linee = [], unita = "" } = {}) {
   g += punti.map((p) => `<circle cx="${X(+new Date(p[0]))}" cy="${Y(p[1])}" r="3.5" fill="var(--verde)"/>`).join("");
   g += `<text x="${ml}" y="${H - 6}">${fmtData(x0, { day: "numeric", month: "short" })}</text><text x="${W - mr}" y="${H - 6}" text-anchor="end">${fmtData(x1, { day: "numeric", month: "short" })}</text>`;
   return `<svg class="grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="Grafico ${esc(unita)}">${g}</svg>`;
+}
+function graficoMulti(serie) {
+  const tutti = serie.flatMap((s) => s.punti); if (tutti.length < 2) return `<div class="vuoto">Servono almeno due misurazioni</div>`;
+  const W = 600, H = 220, ml = 8, mr = 48, mt = 12, mb = 24;
+  const xs = tutti.map((p) => +new Date(p[0])), ys = tutti.map((p) => p[1]);
+  let y0 = Math.min(...ys, 0), y1 = Math.max(...ys, 0); const pad = Math.max(0.5, (y1 - y0) * 0.12); y0 -= pad; y1 += pad;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs) === x0 ? x0 + 864e5 : Math.max(...xs);
+  const X = (x) => ml + ((x - x0) / (x1 - x0)) * (W - ml - mr), Y = (y) => mt + (1 - (y - y0) / (y1 - y0)) * (H - mt - mb);
+  let g = `<line x1="${ml}" x2="${W - mr}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--secondario)" stroke-dasharray="4 4"/><text x="${W - mr + 4}" y="${Y(0) + 5}">0%</text>`;
+  for (const s of serie) {
+    if (s.punti.length < 2) continue;
+    g += `<path d="${s.punti.map((p, i) => `${i ? "L" : "M"}${X(+new Date(p[0]))},${Y(p[1])}`).join(" ")}" fill="none" stroke="${s.colore}" stroke-width="3"/>`;
+    const u = s.punti.at(-1); g += `<circle cx="${X(+new Date(u[0]))}" cy="${Y(u[1])}" r="4" fill="${s.colore}"/><text x="${W - mr + 4}" y="${Y(u[1]) + 5}" style="fill:${s.colore}">${u[1] > 0 ? "+" : ""}${n1(u[1])}%</text>`;
+  }
+  g += `<text x="${ml}" y="${H - 6}">${fmtData(x0, { day: "numeric", month: "short" })}</text><text x="${W - mr}" y="${H - 6}" text-anchor="end">${fmtData(x1, { day: "numeric", month: "short" })}</text>`;
+  return `<svg class="grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="Variazioni percentuali">${g}</svg><div class="piccolo" style="display:flex;gap:14px;flex-wrap:wrap;padding-top:6px">${serie.map((s) => `<span><span style="color:${s.colore}">●</span> ${s.nome}</span>`).join("")}</div>`;
 }
 function anello(prog, colore, centro) {
   const r = 48, c = 2 * Math.PI * r;
@@ -184,7 +215,10 @@ function vistaOggi() {
     const v = somma(voci, k), c = minimo ? (v >= ob * 0.9 ? "var(--verde)" : col) : v > ob ? "var(--rosso)" : col;
     return `<div class="riga" style="display:block"><div style="display:flex;justify-content:space-between"><span>${nome}</span><span class="piccolo num">${n0(v)}${ob ? " / " + n0(ob) : ""} g</span></div>${ob ? `<div class="barra"><i style="width:${Math.min(100, (v / ob) * 100)}%;background:${c}"></i></div>` : ""}</div>`;
   };
-  let h = gruppo("", `<div class="anello-riga">${anello(obK ? kcal / obK : 0, es?.c || "var(--verde)", `<b class="num">${n0(kcal)}</b><span class="piccolo">kcal</span>`)}
+  const ultimoBk = imp("ultimoBackup", 0), giorniBk = ultimoBk ? Math.floor((Date.now() - ultimoBk) / 864e5) : null;
+  let h = (giorniBk === null || giorniBk >= 7) && (S.vociCibo.length || S.pesate.length)
+    ? `<div class="gruppo" style="border:1px solid var(--arancio)"><div class="riga tocco" data-azione="esporta">⚠️ <span class="cresce">${giorniBk === null ? "Non hai ancora fatto un backup" : `Ultimo backup ${giorniBk} giorni fa`}<div class="sotto">Tocca per scaricarlo e salvalo in File o iCloud Drive.</div></span></div></div>` : "";
+  h += gruppo("", `<div class="anello-riga">${anello(obK ? kcal / obK : 0, es?.c || "var(--verde)", `<b class="num">${n0(kcal)}</b><span class="piccolo">kcal</span>`)}
     <div>${es ? `<div class="piccolo">${OBIETTIVI[tipo()].breve}</div><div class="piccolo">Obiettivo: ${n0(obK)} kcal</div><b style="color:${es.c}">${es.m}</b>` : `<span class="piccolo">Imposta l'obiettivo nel Profilo</span>`}</div></div>`
     + macro("Proteine · priorità", "proteine", imp("obiettivoProteine"), "var(--rosso)", true)
     + macro("Carboidrati", "carboidrati", imp("obiettivoCarboidrati") + (allena && imp("obiettivoCarboidrati") ? 50 : 0), "var(--arancio)")
@@ -204,12 +238,17 @@ function vistaOggi() {
     let r = delPiano.map((v) => {
       const fatta = voci.some((x) => x.pianoID === v.uid);
       const scelta = S.scelte.find((s) => s.voce === v.uid && stessoGiorno(s.giorno, g))?.opzione;
+      const vc = scelta && valoriColazione(scelta, v.piano), registrata = voci.find((x) => x.pianoID === v.uid);
+      const kcalRiga = registrata ? registrata.kcal : vc ? vc.kcal : v.kcal;
       return `<div class="riga tocco" data-azione="segna" data-uid="${v.uid}"><span class="check ${fatta ? "si" : ""}">${fatta ? "✓" : ""}</span><div class="cresce"><div>${esc(scelta || v.nome)}</div>
-        ${!scelta && v.quantita ? `<div class="sotto">${esc(v.quantita)}</div>` : ""}${v.alternative && v.pasto !== 0 ? `<div class="sotto corsivo">Oppure: ${esc(v.alternative)}</div>` : ""}</div><span class="valore">${v.kcal ? n0(v.kcal) + " kcal" : "libero"}</span></div>`
+        ${!scelta && v.quantita ? `<div class="sotto">${esc(v.quantita)}</div>` : ""}${v.alternative && v.pasto !== 0 ? `<div class="sotto corsivo">Oppure: ${esc(v.alternative)}</div>` : ""}</div><span class="valore">${v.kcal ? n0(kcalRiga) + " kcal" : "libero"}</span></div>`
+        + (registrata && v.kcal ? `<div class="riga"><button class="btn piccolo" data-azione="porzione" data-id="${registrata.id}">✎ Cambia i grammi${registrata.dettaglio?.length ? " (modificato)" : ""}</button></div>` : "")
         + (v.alternative.includes(" / ") && v.pasto === 0 ? `<div class="riga"><select class="campo piccolo" data-azione="scegli" data-uid="${v.uid}"><option value="">Scegli la colazione…</option>${v.alternative.split(" / ").map((o) => `<option ${o === scelta ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div>` : "");
     }).join("");
     r += extra.map((v) => `<div class="riga tocco" data-azione="modifica-cibo" data-id="${v.id}"><div class="cresce"><div>${esc(v.nome)}</div>${v.grammi ? `<div class="sotto">${n0(v.grammi)} g</div>` : ""}</div><span class="valore">${n0(v.kcal)} kcal</span></div>`).join("");
     r += `<div class="riga"><button class="btn" data-azione="nuovo-cibo" data-pasto="${p}">＋ ${delPiano.length ? "Aggiungi fuori piano" : "Aggiungi alimento"}</button></div>`;
+    const ieri = vociDelGiorno(aggiungiGiorni(g, -1)).filter((v) => v.pasto === p);
+    if (!tutti.length && ieri.length) r += `<div class="riga"><button class="btn" data-azione="copia-ieri" data-pasto="${p}">⧉ Copia da ieri (${ieri.length} · ${n0(somma(ieri, "kcal"))} kcal)</button></div>`;
     const prot = somma(tutti, "proteine");
     h += gruppo(`${ICONE[p]} ${PASTI[p]}`, r, "", tutti.length ? `${n0(somma(tutti, "kcal"))} kcal · <span style="color:${p % 2 === 0 && p < 5 && prot < 20 ? "var(--arancio)" : "inherit"}">P ${n0(prot)} g</span>` : "");
   }
@@ -221,6 +260,90 @@ function vistaOggi() {
   };
 }
 const dataNuoveVoci = (g) => (stessoGiorno(g, new Date()) ? new Date() : new Date(inizioGiorno(g).getTime() + 12 * 36e5));
+
+
+// ───────────── Valori degli ingredienti del piano ─────────────
+// Grammi di un pezzo per gli ingredienti contati a numero, e di una porzione di frutta.
+const PEZZO = [["uov", 50], ["banana", 120]], PORZIONE_FRUTTA = 200;
+function alimentoDelPiano(nome, pianoUid) {
+  let n = nome.toLowerCase().replace(/ o .*$/, "").trim();
+  if (n === "frutta") n = "frutta fresca";
+  const cand = S.alimenti.filter((a) => a.perCento && (!pianoUid || a.piano === pianoUid || !a.piano));
+  return cand.find((a) => a.nome.toLowerCase() === n) || cand.find((a) => a.nome.toLowerCase().split(" (")[0] === n)
+    || cand.find((a) => a.nome.toLowerCase().startsWith(n)) || cand.find((a) => n.startsWith(a.nome.toLowerCase().split(" (")[0]));
+}
+function grammiIngrediente(nome, q, u, a) {
+  if (u === "g") return q;
+  if (u === "porzioni") return q * PORZIONE_FRUTTA;
+  if (u === "qb") return a?.grammi || 0;
+  const pz = PEZZO.find(([k]) => nome.toLowerCase().includes(k));
+  return q * (pz ? pz[1] : a?.grammi || 0);
+}
+function valoriIngrediente(nome, q, u, pianoUid) {
+  const a = alimentoDelPiano(nome, pianoUid); if (!a) return null;
+  const g = grammiIngrediente(nome, q, u, a), f = g / 100;
+  return { kcal: a.kcal * f, p: a.proteine * f, c: a.carboidrati * f, g: a.grassi * f };
+}
+/** Valori esatti di una colazione scelta tra le alternative; null se un ingrediente non si trova. */
+function valoriColazione(opzione, pianoUid) {
+  const t = { kcal: 0, p: 0, c: 0, g: 0 };
+  for (const [nome, q, u] of ingredientiColazione(opzione)) {
+    const v = valoriIngrediente(nome, q, u, pianoUid); if (!v) return null;
+    for (const k in t) t[k] += v[k];
+  }
+  return t;
+}
+
+// ───────────── Modifica grammi di un pasto del piano ─────────────
+let porzione = null;
+function apriPorzione(voceCibo) {
+  const v = S.vociPiano.find((x) => x.uid === voceCibo.pianoID), pid = v.piano;
+  const scelta = S.scelte.find((s) => s.voce === v.uid && stessoGiorno(s.giorno, giornoVisto))?.opzione;
+  const righe = (scelta ? ingredientiColazione(scelta) : ingredienti(v.quantita)).map(([nome, q, u]) => ({ nome, q, u, orig: q, trovato: !!alimentoDelPiano(nome, pid) }));
+  // Grammi già modificati in precedenza
+  for (const r of righe) { const m = voceCibo.dettaglio?.find((d) => d.nome === r.nome); if (m) r.q = m.q; }
+  porzione = { id: voceCibo.id, pid, righe, base: scelta ? valoriColazione(scelta, pid) || { kcal: v.kcal, p: v.proteine, c: v.carboidrati, g: v.grassi } : { kcal: v.kcal, p: v.proteine, c: v.carboidrati, g: v.grassi } };
+  disegnaPorzione();
+}
+function totalePorzione() {
+  const t = { ...porzione.base };
+  for (const r of porzione.righe) {
+    const a = valoriIngrediente(r.nome, r.q || 0, r.u, porzione.pid), b = valoriIngrediente(r.nome, r.orig, r.u, porzione.pid);
+    if (a && b) for (const k in t) t[k] += a[k] - b[k];
+  }
+  for (const k in t) t[k] = Math.max(0, t[k]);
+  return t;
+}
+function disegnaPorzione() {
+  const t = totalePorzione(), unita = { g: "g", pz: "pz", porzioni: "porz.", qb: "q.b." };
+  let h = `<div class="foglio-testa"><button class="btn" data-azione="chiudi">Annulla</button><b>Quantità mangiate</b><button class="btn" data-azione="porzione-salva"><b>Salva</b></button></div>`;
+  h += gruppo("Ingredienti", porzione.righe.map((r, i) => `<div class="riga"><span class="cresce">${esc(r.nome)}${r.trovato ? "" : `<div class="sotto">valori non disponibili: non cambia le calorie</div>`}</span>${r.u === "qb" ? `<span class="valore">q.b.</span>` : `<input type="number" inputmode="decimal" step="any" data-porzione="${i}" value="${r.q}"><span class="valore">${unita[r.u]}</span>`}</div>`).join(""),
+    `<b>Totale: ${n0(t.kcal)} kcal · P ${n0(t.p)} g · C ${n0(t.c)} g · G ${n0(t.g)} g</b>`);
+  h += `<button class="btn" data-azione="porzione-ripristina" style="width:100%;padding:12px">Ripristina le quantità del piano</button>`;
+  foglio(h);
+}
+function salvaPorzione() {
+  const t = totalePorzione(), v = S.vociCibo.find((x) => x.id === porzione.id);
+  Object.assign(v, { kcal: t.kcal, proteine: t.p, carboidrati: t.c, grassi: t.g, dettaglio: porzione.righe.filter((r) => r.q !== r.orig).map((r) => ({ nome: r.nome, q: r.q })) });
+  salva(); chiudiFoglio();
+}
+
+// ───────────── Sostituzioni (tabelle del nutrizionista) ─────────────
+const SOSTITUZIONI = [
+  [["Riso", ["riso"], 80, 335, 6.7, 80, 0.4], ["Pasta", ["pasta"], 80, 353, 12, 72, 1.5], ["Farro, orzo, quinoa, couscous", ["farro", "orzo", "quinoa", "couscous"], 80, 335, 15, 67, 2.5], ["Pasta fresca o ripiena", ["pasta fresca"], 106, 290, 11, 55, 3], ["Pane", ["pane"], 106, 275, 8.5, 56, 1.5], ["Patate", ["patate"], 387, 85, 2.1, 18, 0.1], ["Gnocchi", ["gnocchi"], 167, 150, 3.5, 33, 0.3], ["Gallette o Wasa", ["gallette", "wasa"], 76, 380, 8, 80, 3], ["Piadina o tortillas", ["piadina", "tortilla"], 80, 325, 8, 50, 10]],
+  [["Carne bianca", ["carne bianca", "pollo", "tacchino"], 150, 100, 23.3, 0, 0.8], ["Pesce magro", ["pesce magro", "merluzzo", "orata", "branzino"], 200, 71, 17, 0, 0.3], ["Frutti di mare", ["frutti di mare", "gamberi", "calamari", "cozze"], 300, 75, 14, 2, 1.2]],
+  [["Carne rossa", ["carne rossa", "manzo", "vitello"], 150, 150, 21, 0, 7], ["Pesce grasso", ["pesce grasso", "salmone fresco", "sgombro", "sardine"], 150, 180, 20, 0, 11]],
+  [["Uova", ["uova", "uovo"], 100, 128, 12.4, 0.6, 8.7], ["Tofu", ["tofu"], 80, 145, 15, 2, 9]],
+  [["Legumi in scatola", ["legumi", "ceci", "fagioli", "lenticchie", "piselli"], 120, 100, 6.5, 14, 1], ["Legumi secchi o pasta di legumi", ["legumi secchi", "pasta di legumi"], 40, 330, 22, 50, 2]],
+  [["Grana, parmigiano", ["grana", "parmigiano", "pecorino"], 40, 392, 33, 0, 28.4], ["Mozzarella", ["mozzarella"], 65, 250, 18, 1, 19], ["Feta, crescenza", ["feta", "crescenza"], 55, 250, 15.6, 1.5, 20], ["Ricotta", ["ricotta"], 110, 146, 8.8, 3.5, 10.9]],
+  [["Olio o burro", ["olio"], 15, 899, 0, 0, 100], ["Frutta secca", ["frutta secca", "noci", "mandorle"], 20, 600, 18, 10, 52], ["Maionese o tahina", ["maionese", "tahina"], 20, 680, 1, 2, 75], ["Philadelphia original", ["philadelphia original"], 50, 250, 5.5, 4, 24], ["Olive o avocado", ["olive", "avocado"], 75, 150, 1.5, 3, 15]],
+];
+function sostituzioniPer(nome) {
+  const n = nome.toLowerCase();
+  let best = null;
+  for (const gr of SOSTITUZIONI) for (const x of gr) for (const k of x[1]) if (n.startsWith(k) && (!best || k.length > best.k.length)) best = { k, voce: x, gruppo: gr };
+  return best;
+}
 
 // ───────────── Aggiungi alimento ─────────────
 const FUORI = [["Pizza margherita", 850, 32, 110, 28], ["Pizza capricciosa", 1000, 42, 112, 40], ["Pizza diavola", 1000, 40, 110, 42], ["Pasta alla carbonara", 750, 30, 80, 32], ["Pasta al ragù", 650, 30, 85, 20], ["Pasta al pomodoro", 500, 15, 90, 10], ["Lasagne", 700, 35, 55, 35], ["Risotto ai funghi", 600, 14, 85, 22], ["Hamburger con patatine", 1100, 45, 95, 55], ["Panino kebab", 750, 40, 70, 32], ["Piadina crudo e mozzarella", 650, 30, 55, 32], ["Sushi misto (12 pezzi)", 600, 28, 95, 10], ["Poke bowl salmone", 650, 30, 75, 22], ["Tagliata con rucola", 550, 55, 3, 35], ["Grigliata di pesce", 450, 60, 2, 20], ["Fritto misto di pesce", 750, 40, 45, 45], ["Insalatona con tonno", 450, 28, 20, 28], ["Patatine fritte (porzione)", 400, 5, 50, 20], ["Tiramisù", 450, 8, 40, 28], ["Gelato (2 gusti)", 250, 4, 32, 11], ["Birra media (0,4 l)", 170, 2, 14, 0], ["Calice di vino", 110, 0, 3, 0], ["Spritz", 150, 0, 15, 0]];
@@ -252,13 +375,17 @@ function disegnaModulo() {
     if (recenti.length) h += gruppo(cerca ? "Suggerimenti" : "Preferiti e recenti", recenti.map((a) => `<div class="riga tocco" data-azione="scegli-alimento" data-nome="${esc(a.nome)}"><span>${a.preferito ? "⭐️" : "🕘"}</span><span class="cresce">${esc(a.nome)}<div class="sotto">${a.ricetta ? "Ricetta · " + n0(a.kcal) + " kcal" : a.perCento ? n0(a.kcal) + " kcal / 100 g" : n0(a.kcal) + " kcal a porzione"}</div></span></div>`).join(""));
     const fuori = FUORI.filter((f) => cerca && f[0].toLowerCase().includes(cerca));
     if (fuori.length) h += gruppo("Fuori casa (stime)", fuori.map((f) => `<div class="riga tocco" data-azione="scegli-fuori" data-nome="${esc(f[0])}"><span>🍕</span><span class="cresce">${esc(f[0])}</span><span class="valore">${n0(f[1])} kcal</span></div>`).join(""));
-    h += gruppo("", `<div class="riga"><button class="btn" data-azione="codice">▥ Cerca per codice a barre</button></div>`
+    h += gruppo("", `<div class="riga"><button class="btn" data-azione="scansiona">📷 Scansiona codice a barre</button><span class="cresce"></span><button class="btn" data-azione="codice">⌨︎ Scrivi codice</button></div>`
       + (m.risultati ? m.risultati.map((r, i) => `<div class="riga tocco" data-azione="scegli-off" data-i="${i}"><span class="cresce">${esc(r.nome)}<div class="sotto">${esc(r.marca)} · ${n0(r.kcal)} kcal / 100 g</div></span></div>`).join("") || `<div class="riga piccolo">Nessun risultato.</div>` : ""),
       cerca ? "" : "Scrivi il nome per vedere anche i piatti fuori casa (pizza, sushi, carbonara…). Il codice a barre sono le cifre sotto le barre.");
   }
   h += gruppo("", (m.per100 ? campo("grammi", "Quantità mangiata", "g") : "") + `<label class="riga tocco"><span class="cresce">Non conosco i grammi</span><input type="checkbox" data-azione="per100" ${m.per100 ? "" : "checked"}></label>`);
   h += gruppo(m.per100 ? "Valori per 100 g (dall'etichetta)" : "Valori totali", campo("kcal", "Calorie", "kcal") + campo("p", "Proteine", "g") + campo("c", "Carboidrati", "g") + campo("g", "Grassi", "g"),
     m.per100 && m.kcal != null ? (m.grammi ? `<b>Totale: ${n0(t.kcal)} kcal · P ${n0(t.p)} g · C ${n0(t.c)} g · G ${n0(t.g)} g</b>` : "Inserisci la quantità mangiata per calcolare il totale.") : "");
+  const sost = m.per100 && m.grammi > 0 && sostituzioniPer(m.nome);
+  if (sost) { const f = m.grammi / sost.voce[2];
+    h += gruppo(`Sostituisci ${n0(m.grammi)} g con`, sost.gruppo.filter((x) => x !== sost.voce).map((x) => { const g = Math.round((x[2] * f) / 5) * 5;
+      return `<div class="riga tocco" data-azione="sostituisci" data-nome="${esc(x[0])}" data-g="${g}"><span>⇄</span><span class="cresce">${esc(x[0])}</span><span class="valore">${n0(g)} g · ${n0((x[3] * g) / 100)} kcal</span></div>`; }).join(""), "Quantità equivalenti secondo le tabelle del nutrizionista."); }
   if (m.id) h += `<button class="btn rosso" data-azione="elimina-cibo" style="width:100%;padding:12px">Elimina</button>`;
   const foc = document.activeElement?.dataset?.campo, pos = document.activeElement?.selectionStart;
   foglio(h);
@@ -292,8 +419,8 @@ function leggiOFF(d) {
   const marca = (Array.isArray(d.brands) ? d.brands[0] : String(d.brands || "").split(",")[0]) || "";
   return { codice: d.code, nome, marca: marca.trim(), kcal: +k, p: +n.proteins_100g || 0, c: +n.carbohydrates_100g || 0, g: +n.fat_100g || 0 };
 }
-async function cercaCodice() {
-  const codice = prompt("Codice a barre (le cifre sotto le barre):");
+async function cercaCodice(codice) {
+  codice ??= prompt("Codice a barre (le cifre sotto le barre):");
   if (!codice) return;
   try {
     const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(codice.trim())}.json?fields=code,product_name,product_name_it,brands,nutriments`).then((x) => x.json());
@@ -303,6 +430,28 @@ async function cercaCodice() {
     disegnaModulo();
   } catch { avviso("Ricerca non riuscita: controlla la connessione."); }
 }
+
+// Scanner con la fotocamera (libreria ZXing, caricata solo quando serve).
+let lettore = null;
+async function scansiona() {
+  const ritorno = { ...modulo };
+  foglio(`<div class="foglio-testa"><button class="btn" data-azione="scan-annulla">Annulla</button><b>Inquadra il codice</b><span style="width:60px"></span></div>
+    <video id="scan-video" playsinline muted style="width:100%;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover"></video><p class="piccolo" style="text-align:center">Tieni il codice a barre dentro l'inquadratura, ben illuminato.</p>`);
+  scansiona.ritorno = ritorno;
+  try {
+    if (!window.ZXing) await new Promise((ok, ko) => { const sc = document.createElement("script"); sc.src = "https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"; sc.onload = ok; sc.onerror = ko; document.head.appendChild(sc); });
+    const formati = new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E, ZXing.BarcodeFormat.CODE_128]]]);
+    lettore = new ZXing.BrowserMultiFormatReader(formati);
+    const risultato = await lettore.decodeOnceFromConstraints({ video: { facingMode: "environment" } }, "scan-video");
+    fermaScanner(); modulo = ritorno; await cercaCodice(risultato.getText());
+  } catch (e) {
+    fermaScanner();
+    if (!document.getElementById("scan-video")) return;
+    modulo = ritorno; disegnaModulo();
+    avviso(e?.name === "NotAllowedError" ? "Accesso alla fotocamera negato: abilitalo in Impostazioni → Safari → Fotocamera." : "Scanner non disponibile: scrivi il codice a mano.");
+  }
+}
+function fermaScanner() { try { lettore?.reset(); } catch {} lettore = null; }
 
 // ───────────── Settimana ─────────────
 function vistaSettimana(settimaneFa = 0) {
@@ -380,18 +529,18 @@ function reparto(nome) {
 const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 function ingredienti(testo) {
   return testo.split(" · ").map((parte) => {
-    const w = parte.trim().split(" "), i = w.findIndex((x) => num(x) != null);
+    const w = parte.trim().split(" "), i = w.findIndex((x) => quantita(x) != null);
     if (i <= 0) return null;
     const resto = w.slice(i + 1).join(" ");
-    return [cap(w.slice(0, i).join(" ")), num(w[i]), resto.startsWith("g") ? "g" : resto.includes("porzion") ? "porzioni" : "pz"];
+    return [cap(w.slice(0, i).join(" ")), quantita(w[i]), resto.startsWith("g") ? "g" : resto.includes("porzion") ? "porzioni" : "pz"];
   }).filter(Boolean);
 }
 function ingredientiColazione(opzione) {
   return opzione.replace(/\s*\(.*?\)/g, "").split(", ").map((parte) => {
-    const w = parte.trim().replace("½", "0.5").split(" "), i = w.findIndex((x) => num(x) != null);
+    const w = parte.trim().replace("½", "0.5").split(" "), i = w.findIndex((x) => quantita(x) != null);
     if (i < 0) return [cap(w.join(" ").replace(" q.b.", "")), 0, "qb"];
     if (i === 0) return w[1]?.startsWith("porzion") ? [cap(w.slice(w.indexOf("di") + 1).join(" ") || "frutta"), num(w[0]), "porzioni"] : [cap(w.slice(1).join(" ")), num(w[0]), "pz"];
-    return [cap(w.slice(0, i).join(" ")), num(w[i]), (w[i + 1] || "").startsWith("g") ? "g" : "pz"];
+    return [cap(w.slice(0, i).join(" ")), quantita(w[i]), (w[i + 1] || "").startsWith("g") ? "g" : "pz"];
   });
 }
 function generaSpesa(settimane, porzioni, colazioni) {
@@ -453,6 +602,10 @@ function vistaPeso() {
       ${b ? `<div style="text-align:right"><div class="piccolo">BMI</div><b style="font-size:28px">${n1(b)}</b><div><span class="pill" style="color:${col};background:color-mix(in srgb, ${col} 18%, transparent)">${cat}</span></div></div>` : ""}</div>`);
     const a = andamento();
     h += gruppo(`Andamento · ${OBIETTIVI[tipo()].breve}`, `<div class="riga"><span style="color:${a ? a[0] : "var(--secondario)"}">${a ? "●" : ""}</span><span class="cresce">${a ? a[1] : "Servono almeno due pesate a distanza di una settimana nelle ultime 3 settimane."}</span></div>`);
+    const st = stimaFabbisogno();
+    h += gruppo("Il tuo fabbisogno reale", st.ok
+      ? `<div class="riga"><span class="cresce">Mantenimento stimato</span><b class="num">${n0(st.mantenimento)} kcal</b></div><div class="riga piccolo">Negli ultimi ${st.giorni} giorni hai mangiato in media ${n0(st.media)} kcal e il peso è cambiato di ${st.kgSett > 0 ? "+" : ""}${n1(st.kgSett)} kg a settimana.${tipo() === "massa" ? ` Per aumentare di circa 0,25 kg a settimana servono circa <b>${n0(st.mantenimento + 275)} kcal</b>.` : ""}</div>`
+      : `<div class="riga piccolo">${st.motivo}</div>`, "Stima basata su quanto registri e sul peso: più registri tutti i pasti, più è precisa. Confrontala con il nutrizionista.");
     const punti = p.slice().reverse().map((x) => [x.data, mostraBmi ? bmi(x.peso, h0) : x.peso]).filter((x) => x[1]);
     h += gruppo("", `<div class="riga"><div class="segmenti"><button class="${mostraBmi ? "" : "sel"}" data-azione="bmi" data-v="0">Peso</button><button class="${mostraBmi ? "sel" : ""}" data-azione="bmi" data-v="1">BMI</button></div></div><div class="riga" style="display:block">${grafico(punti, { linee: mostraBmi ? [{ v: 18.5, c: "var(--blu)", t: "18,5" }, { v: 25, c: "var(--arancio)", t: "25 sovrappeso" }] : ob ? [{ v: ob, c: "var(--verde)", t: `Obiettivo ${n1(ob)} kg` }] : [], unita: "kg" })}</div>`);
   } else h += `<div class="gruppo vuoto"><b>Nessuna pesata</b>Aggiungi il peso qui sotto.</div>`;
@@ -475,6 +628,10 @@ function vistaMisure() {
         return `<tr><td>${t}</td>${valori.map((v) => `<td>${v != null ? n1(v) : "—"}</td>`).join("")}<td style="font-weight:600;color:${d == null || !meglio ? "var(--secondario)" : meglio * d > 0 ? "var(--verde)" : d === 0 ? "var(--secondario)" : "var(--arancio)"}">${d != null ? (d > 0 ? "+" : "") + n1(d) : "—"}</td></tr>`; };
       let t = `<tr><th></th>${m.map((x) => `<th>${fmtData(x.data, { day: "numeric", month: "short" })}</th>`).join("")}<th>Totale</th></tr>` + riga("Peso (kg)", m.map((x) => pesoIl(x.data)), null);
       for (const [k, tt, u] of MISURE) if (m.some((x) => x[k] != null)) t += riga(`${tt.split(" (")[0]} (${u})`, m.map((x) => x[k]), k === "braccio" || k === "petto" ? 1 : -1);
+      const varia = (punti) => punti.length ? punti.map((p) => [p[0], ((p[1] - punti[0][1]) / punti[0][1]) * 100]) : [];
+      const serieP = varia(S.pesate.filter((x) => new Date(x.data) >= new Date(m[0].data) - 3 * 864e5).sort((a, b) => new Date(a.data) - new Date(b.data)).map((x) => [x.data, x.peso]));
+      h += gruppo("Peso, braccio e vita", `<div class="riga" style="display:block">${graficoMulti([{ nome: "Peso", colore: "var(--blu)", punti: serieP }, { nome: "Braccio", colore: "var(--verde)", punti: varia(m.filter((x) => x.braccio != null).map((x) => [x.data, x.braccio])) }, { nome: "Vita", colore: "var(--arancio)", punti: varia(m.filter((x) => x.vita != null).map((x) => [x.data, x.vita])) }])}</div>`,
+        "Variazione in % dalla prima misurazione. In fase di massa il peso dovrebbe salire insieme al braccio, con la vita stabile: se sale soprattutto la vita, l'aumento è più grasso che muscolo.");
       h += gruppo("Confronto visite", `<div class="tabella"><table>${t}</table></div>`, "Verde = nella direzione buona: braccio in crescita; vita, addome e pliche in calo.");
     }
   } else h += `<div class="gruppo vuoto"><b>Nessuna misura</b>Registra le circonferenze qui sotto.</div>`;
@@ -674,9 +831,11 @@ function esporta() {
   const { spesaPersone, ...semplici } = S.impostazioni;
   const file = { ...S, creato: iso(new Date()), impostazioni: btoa(unescape(encodeURIComponent(plistXml(semplici)))), impostazioniWeb: S.impostazioni };
   file.vociCibo = S.vociCibo.map(({ id, ...v }) => v);
+  setImp("ultimoBackup", Date.now());
   const url = URL.createObjectURL(new Blob([JSON.stringify(file)], { type: "application/json" }));
   const a = document.createElement("a"); a.href = url; a.download = `Diario Dieta backup ${new Date().toISOString().slice(0, 10)}.json`; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+  if (scheda === "oggi") disegna();
 }
 function importa(testo) {
   const d = JSON.parse(testo);
@@ -719,10 +878,28 @@ document.addEventListener("click", async (e) => {
     case "segna": {
       const v = S.vociPiano.find((x) => x.uid === t.dataset.uid), i = vociDelGiorno(g).find((x) => x.pianoID === v.uid);
       if (i) S.vociCibo = S.vociCibo.filter((x) => x !== i);
-      else S.vociCibo.push({ id: uuid(), data: iso(dataNuoveVoci(g)), pasto: v.pasto, nome: v.nome, kcal: v.kcal, proteine: v.proteine, carboidrati: v.carboidrati, grassi: v.grassi, grammi: v.grammi ?? null, pianoID: v.uid });
+      else {
+        const scelta = S.scelte.find((s) => s.voce === v.uid && stessoGiorno(s.giorno, g))?.opzione, vc = scelta && valoriColazione(scelta, v.piano);
+        S.vociCibo.push({ id: uuid(), data: iso(dataNuoveVoci(g)), pasto: v.pasto, nome: scelta || v.nome, kcal: vc ? vc.kcal : v.kcal, proteine: vc ? vc.p : v.proteine,
+          carboidrati: vc ? vc.c : v.carboidrati, grassi: vc ? vc.g : v.grassi, grammi: v.grammi ?? null, pianoID: v.uid });
+      }
       salva(); return disegna();
     }
     case "nuovo-cibo": return apriCibo(+t.dataset.pasto);
+    case "porzione": return apriPorzione(S.vociCibo.find((x) => x.id === t.dataset.id));
+    case "porzione-salva": return salvaPorzione();
+    case "porzione-ripristina": porzione.righe.forEach((r) => (r.q = r.orig)); return disegnaPorzione();
+    case "copia-ieri": {
+      for (const v of vociDelGiorno(aggiungiGiorni(g, -1)).filter((x) => x.pasto === +t.dataset.pasto))
+        S.vociCibo.push({ ...v, id: uuid(), data: iso(dataNuoveVoci(g)) });
+      salva(); return disegna();
+    }
+    case "sostituisci": {
+      const x = SOSTITUZIONI.flat().find((y) => y[0] === t.dataset.nome);
+      Object.assign(modulo, { nome: x[0], grammi: +t.dataset.g, kcal: x[3], p: x[4], c: x[5], g: x[6] }); return disegnaModulo();
+    }
+    case "scansiona": return scansiona();
+    case "scan-annulla": fermaScanner(); modulo = scansiona.ritorno; return disegnaModulo();
     case "modifica-cibo": return apriCibo(null, t.dataset.id);
     case "salva-cibo": return salvaCibo();
     case "elimina-cibo": S.vociCibo = S.vociCibo.filter((x) => x.id !== modulo.id); salva(); return chiudiFoglio();
@@ -811,6 +988,7 @@ document.addEventListener("change", (e) => {
   if (a === "misura") { misuraVista = t.value; return disegna(); }
   if (a === "auto") { setImp("calcoloAutomatico", t.checked); applicaCalcolo(); return disegna(); }
   if (t.dataset.ricetta === "g") return disegnaRicetta();
+  if (t.dataset.porzione != null) { porzione.righe[+t.dataset.porzione].q = num(t.value) ?? 0; return disegnaPorzione(); }
   if (a === "foto-aggiungi" && t.files[0]) return aggiungiFoto(t.files[0]);
   if (a === "q-note") { questionario.note = t.value; return; }
   if (a === "integratore-attivo") { S.integratori.find((x) => x.uid === t.dataset.uid).attivo = t.checked; return salva(); }
