@@ -851,6 +851,16 @@ function applicaCalcolo() {
   Object.assign(S.impostazioni, { obiettivoKcal: c.kcal, obiettivoProteine: c.prot, obiettivoCarboidrati: c.carbo, obiettivoGrassi: c.grassi, obiettivoAcqua: c.acqua }); salva();
 }
 
+// Safari su iPhone a volte ingrandisce comunque con il doppio tocco: si annulla il secondo tocco ravvicinato.
+let ultimoTocco = 0;
+document.addEventListener("touchend", (e) => {
+  const ora = Date.now();
+  if (ora - ultimoTocco < 350 && !e.target.closest("input, textarea, select")) e.preventDefault();
+  ultimoTocco = ora;
+}, { passive: false });
+document.addEventListener("dblclick", (e) => e.preventDefault(), { passive: false });
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+
 // Primo avvio: carica i dati portati dall'app iOS, se presenti accanto alla pagina.
 (async function avvio() {
   if (!S.piani.length && !S.vociCibo.length) {
