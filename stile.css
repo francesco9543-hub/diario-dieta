@@ -1,0 +1,100 @@
+/* Stile vicino a iOS: liste a gruppi, verde dell'app, tema chiaro e scuro. */
+:root {
+  --sfondo: #f2f2f7; --scheda: #ffffff; --testo: #1c1c1e; --secondario: #6e6e73; --linea: #e3e3e8;
+  --verde: #2fa866; --arancio: #f08c00; --rosso: #e5484d; --blu: #0a84ff; --ciano: #19b5d6; --giallo: #e2b100;
+  --raggio: 14px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="chiaro"]) {
+    --sfondo: #000; --scheda: #1c1c1e; --testo: #f2f2f7; --secondario: #9a9aa0; --linea: #2c2c2e;
+    --verde: #34c27a; --arancio: #ff9f0a; --rosso: #ff6369; color-scheme: dark;
+  }
+}
+:root[data-tema="scuro"] {
+  --sfondo: #000; --scheda: #1c1c1e; --testo: #f2f2f7; --secondario: #9a9aa0; --linea: #2c2c2e;
+  --verde: #34c27a; --arancio: #ff9f0a; --rosso: #ff6369; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--sfondo); color: var(--testo);
+  font: 16px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  -webkit-text-size-adjust: 100%; }
+body { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+button, input, select, textarea { font: inherit; color: inherit; }
+#testata { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--sfondo) 88%, transparent);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  padding: calc(10px + env(safe-area-inset-top)) 16px 8px; display: flex; align-items: center; gap: 8px; }
+#testata h1 { font-size: 28px; margin: 0; flex: 1; letter-spacing: -0.02em; }
+#contenuto { max-width: 640px; margin: 0 auto; padding: 4px 16px 16px; }
+#schede { position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; display: flex;
+  background: color-mix(in srgb, var(--scheda) 92%, transparent); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--linea); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
+#schede button { flex: 1; background: none; border: 0; font-size: 11px; color: var(--secondario); display: flex;
+  flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; }
+#schede button .ic { font-size: 21px; filter: grayscale(1); opacity: .7; }
+#schede button.attiva { color: var(--verde); font-weight: 600; }
+#schede button.attiva .ic { filter: none; opacity: 1; }
+
+.gruppo { background: var(--scheda); border-radius: var(--raggio); overflow: hidden; margin: 0 0 22px; }
+.titolo-gruppo { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; text-transform: uppercase;
+  letter-spacing: .03em; color: var(--secondario); margin: 0 16px 6px; }
+.nota-gruppo { font-size: 13px; color: var(--secondario); margin: -16px 16px 22px; }
+.riga { display: flex; align-items: center; gap: 12px; padding: 12px 16px; min-height: 48px; position: relative; }
+.riga + .riga::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; border-top: 1px solid var(--linea); }
+.riga .cresce { flex: 1; min-width: 0; }
+.riga .sotto { font-size: 13px; color: var(--secondario); }
+.riga .valore { color: var(--secondario); white-space: nowrap; }
+.riga.tocco { cursor: pointer; }
+.riga.tocco:active { background: var(--linea); }
+.piccolo { font-size: 13px; color: var(--secondario); }
+.corsivo { font-style: italic; }
+.btn { background: none; border: 0; color: var(--verde); padding: 0; cursor: pointer; font-weight: 500; }
+.btn.pieno { background: var(--verde); color: #fff; border-radius: 12px; padding: 12px 18px; width: 100%; font-weight: 600; }
+.btn.tondo { width: 36px; height: 36px; border-radius: 50%; background: var(--scheda); font-size: 20px; line-height: 1; }
+.btn.rosso { color: var(--rosso); }
+.check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--secondario); flex: none; display: grid; place-items: center; color: #fff; font-size: 15px; }
+.check.si { background: var(--verde); border-color: var(--verde); }
+input[type=text], input[type=number], input[type=date], input[type=search], select, textarea {
+  background: transparent; border: 0; outline: none; min-width: 0; }
+input[type=number] { text-align: right; width: 90px; }
+.campo { flex: 1; }
+textarea { width: 100%; resize: vertical; min-height: 60px; }
+.segmenti { display: flex; background: var(--linea); border-radius: 9px; padding: 2px; gap: 2px; width: 100%; }
+.segmenti button { flex: 1; border: 0; background: none; padding: 6px 4px; border-radius: 7px; font-size: 14px; }
+.segmenti button.sel { background: var(--scheda); font-weight: 600; box-shadow: 0 1px 3px #0002; }
+
+.anello-riga { display: flex; gap: 20px; align-items: center; padding: 16px; }
+.anello { width: 110px; height: 110px; flex: none; position: relative; }
+.anello svg { transform: rotate(-90deg); }
+.anello .centro { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.anello .centro b { font-size: 24px; }
+.barra { height: 6px; border-radius: 3px; background: var(--linea); overflow: hidden; margin-top: 6px; }
+.barra > i { display: block; height: 100%; border-radius: 3px; }
+.pill { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+.grafico { width: 100%; height: auto; display: block; }
+.grafico text { fill: var(--secondario); font-size: 18px; }
+.tabella { overflow-x: auto; }
+.tabella table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 14px; }
+.tabella td, .tabella th { padding: 8px 10px; text-align: right; white-space: nowrap; }
+.tabella td:first-child, .tabella th:first-child { text-align: left; }
+.num { font-variant-numeric: tabular-nums; }
+.vuoto { text-align: center; padding: 32px 16px; color: var(--secondario); }
+.vuoto b { display: block; color: var(--testo); font-size: 18px; margin-bottom: 6px; }
+
+#foglio { position: fixed; inset: 0; z-index: 20; }
+.foglio-sfondo { position: absolute; inset: 0; background: #0006; }
+.foglio-corpo { position: absolute; left: 0; right: 0; bottom: 0; max-height: 92vh; overflow: auto; background: var(--sfondo);
+  border-radius: 16px 16px 0 0; padding: 12px 16px calc(24px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+.foglio-testa { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 14px; position: sticky; top: -12px; background: var(--sfondo); z-index: 1; }
+.foglio-testa b { font-size: 17px; }
+#avviso { position: fixed; left: 16px; right: 16px; bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 30; background: var(--testo); color: var(--sfondo);
+  padding: 12px 16px; border-radius: 12px; text-align: center; max-width: 480px; margin: 0 auto; }
+.regole { padding: 16px; font-size: 15px; }
+.regole p { margin: 0 0 10px; }
+.regole ul { margin: 0 0 12px; padding-left: 20px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media print {
+  #schede, #testata button, .btn { display: none !important; }
+  body { padding: 0; background: #fff; color: #000; }
+  .gruppo { break-inside: avoid; border: 1px solid #ccc; }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Diario Dieta",
+  "short_name": "Diario Dieta",
+  "lang": "it",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f2f2f7",
+  "theme_color": "#2fa866",
+  "icons": [{ "src": "icona.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }]
+}

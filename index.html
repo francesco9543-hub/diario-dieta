@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Diario Dieta">
+<meta name="theme-color" content="#2fa866">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icona.png">
+<link rel="stylesheet" href="stile.css">
+<title>Diario Dieta</title>
+</head>
+<body>
+<header id="testata"></header>
+<main id="contenuto"></main>
+<nav id="schede">
+  <button data-scheda="oggi"><span class="ic">🔥</span>Oggi</button>
+  <button data-scheda="piano"><span class="ic">📋</span>Piano</button>
+  <button data-scheda="peso"><span class="ic">⚖️</span>Peso</button>
+  <button data-scheda="misure"><span class="ic">📏</span>Misure</button>
+  <button data-scheda="profilo"><span class="ic">👤</span>Profilo</button>
+</nav>
+<div id="foglio" hidden><div class="foglio-sfondo" data-azione="chiudi"></div><div class="foglio-corpo" id="foglio-corpo"></div></div>
+<div id="avviso" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
